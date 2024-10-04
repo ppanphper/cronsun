@@ -1,30 +1,34 @@
 #!/bin/sh
 
-function check_code() {
-	EXCODE=$?
-	if [ "$EXCODE" != "0" ]; then
-		echo "build fail."
-		exit $EXCODE
-	fi
+# Function to check if the previous command failed
+function check_fail() {
+  if [ $? -ne 0 ]; then
+    echo "Build failed."
+    exit 1
+  fi
 }
 
+# Output directory
 out="dist"
-echo "build file to ./$out"
+echo "Building files to ./$out"
 
-mkdir -p "$out/conf"
+# Create required directories
+mkdir -p "$out/conf" || exit 1
 
-go build -o ./$out/cronnode ./bin/node/server.go
-check_code
-go build -o ./$out/cronweb ./bin/web/server.go
-check_code
-go build -o ./$out/csctl ./bin/csctl/cmd.go
-check_code
+# Build Go binaries in parallel for faster build times
+ldflags="-s -w"
 
-sources=`find ./conf/files -name "*.json.sample"`
-check_code
-for source in $sources;do
-	yes | echo $source|sed "s/.*\/\(.*\.json\).*/cp -f & .\/$out\/conf\/\1/"|bash
-	check_code
+go build -ldflags "$ldflags" -o "$out/cronnode" ./bin/node/server.go || { echo "Failed to build cronnode"; exit 1; } &
+go build -ldflags "$ldflags" -o "$out/cronweb" ./bin/web/server.go || { echo "Failed to build cronweb"; exit 1; } &
+go build -ldflags "$ldflags" -o "$out/csctl" ./bin/csctl/cmd.go || { echo "Failed to build csctl"; exit 1; } &
+
+# Wait for all background jobs to finish
+wait
+check_fail
+
+# Copy .json.sample files to dist/conf directory
+for source in $(find ./conf/files -name "*.json.sample"); do
+  cp -f "$source" "$out/conf/$(basename "$source" .sample)" || { echo "Failed to copy $source"; exit 1; }
 done
 
-echo "build success."
+echo "Build success."

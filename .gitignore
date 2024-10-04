@@ -13,3 +13,4 @@ web/ui/dist
 *npm-debug.log
 vendor
 /.idea
+/*.zip
