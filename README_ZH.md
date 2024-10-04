@@ -112,6 +112,28 @@ sh build.sh
 
 ![](doc/img/node.png)
 
+## 开发
+
+### 前端
+
+```bash
+# macOS
+brew install go-bindata
+
+cd web/ui
+
+# 安装依赖
+yarn install
+
+# 开发
+yarn run dev
+
+# 更新生产环境的前端代码
+## 注意这里的路径，需要回到项目目录执行
+cd web
+bash -x gen_bindata.sh
+```
+
 ## 致谢
 
 cron is base on [robfig/cron](https://github.com/robfig/cron)
