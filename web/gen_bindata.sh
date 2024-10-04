@@ -1,7 +1,7 @@
 #!/bin/sh
 BASEDIR=$(dirname $(realpath $0))
 cd $BASEDIR/ui
-npm run build
+yarn run build
 cd ..
 go-bindata -pkg "web" -prefix "ui/dist/" -o static_assets.go ./ui/dist/
 
