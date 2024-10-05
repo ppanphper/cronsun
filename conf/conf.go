@@ -182,7 +182,7 @@ func (c *Conf) genUUID() (string, error) {
 		return "", fmt.Errorf("failed to write UUID to file: %s. you can change UUIDFile config in base.json", err)
 	}
 
-	err = ioutil.WriteFile(c.UUIDFile, []byte(u.String()), 0600)
+	err = os.WriteFile(c.UUIDFile, []byte(u.String()), 0600)
 	if err != nil {
 		return "", fmt.Errorf("failed to write UUID to file: %s. you can change UUIDFile config in base.json", err)
 	}

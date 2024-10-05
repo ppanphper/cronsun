@@ -3,7 +3,6 @@ package node
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 	"strconv"
@@ -133,7 +132,7 @@ func (n *Node) writePIDFile() {
 	}
 
 	n.PIDFile = path.Join(dir, filename)
-	err = ioutil.WriteFile(n.PIDFile, []byte(n.PID), 0644)
+	err = os.WriteFile(n.PIDFile, []byte(n.PID), 0644)
 	if err != nil {
 		log.Errorf("Failed to write pid file: %s. you can change PIDFile config in base.json", err)
 		return
