@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # 默认版本号
-version="v0.4.0"
+version="v0.4.1"
 if [ "$#" -gt 0 ]; then
   version="$1"
 fi
