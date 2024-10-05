@@ -50,8 +50,8 @@ var ImportCmd = &cobra.Command{
 				return
 			}
 		}
-		// TODO: 优化这个
-		rand.Seed(time.Now().Unix())
+		randGen := rand.New(rand.NewSource(time.Now().UnixNano()))
+
 		for _, cron := range crons {
 			job := cronsun.Job{}
 			job.ID = cronsun.NextID()
@@ -60,7 +60,7 @@ var ImportCmd = &cobra.Command{
 				Timer: "* " + cron.timer,
 			}
 			jr.NodeIDs = nodeInclude
-			job.Name = fmt.Sprintf("crontab-%d", rand.Intn(1000))
+			job.Name = fmt.Sprintf("crontab-%d", randGen.Intn(10000))
 			job.Group = "crontab"
 			job.Rules = append(job.Rules, jr)
 			// 默认先暂停

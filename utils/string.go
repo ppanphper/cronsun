@@ -14,8 +14,6 @@ func init() {
 	for i := 0; i < _dcl; i++ {
 		defaultCharacters[i] = byte(i + 33)
 	}
-
-	rand.Seed(time.Now().UnixNano())
 }
 
 func RandString(length int, characters ...byte) string {
@@ -26,8 +24,10 @@ func RandString(length int, characters ...byte) string {
 	n := len(characters)
 	var rs = make([]byte, length)
 
+	randGen := rand.New(rand.NewSource(time.Now().UnixNano()))
+
 	for i := 0; i < length; i++ {
-		rs[i] = characters[rand.Intn(n-1)]
+		rs[i] = characters[randGen.Intn(n-1)]
 	}
 
 	return string(rs)
