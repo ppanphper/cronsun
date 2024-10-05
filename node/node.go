@@ -8,14 +8,15 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	client "github.com/coreos/etcd/clientv3"
+	"github.com/robfig/cron/v3"
 	"github.com/shunfei/cronsun"
 	"github.com/shunfei/cronsun/conf"
 	"github.com/shunfei/cronsun/log"
-	"github.com/shunfei/cronsun/node/cron"
 	"github.com/shunfei/cronsun/utils"
 )
 
@@ -24,6 +25,10 @@ type Node struct {
 	*cronsun.Client
 	*cronsun.Node
 	*cron.Cron
+
+	// key 为 cmd 的 ID（cmd.GetID），值为 cron 的 entry ID
+	// 可通过获取 entry ID，来删除这个 cron 任务
+	cronEntryIDIndex map[string]cron.EntryID
 
 	jobs   Jobs // 和结点相关的任务
 	groups Groups
@@ -36,6 +41,8 @@ type Node struct {
 	ttl  int64
 	lID  client.LeaseID // lease id
 	done chan struct{}
+
+	mu sync.Mutex // 添加互斥
 }
 
 func NewNode(cfg *conf.Conf) (n *Node, err error) {
@@ -263,7 +270,8 @@ func (n *Node) modJob(job *cronsun.Job) {
 }
 
 func (n *Node) addCmd(cmd *cronsun.Cmd, notice bool) {
-	n.Cron.Schedule(cmd.JobRule.Schedule, cmd)
+	cronEntryID := n.Cron.Schedule(cmd.JobRule.Schedule, cmd)
+	n.cronEntryIDIndex[cmd.GetID()] = cronEntryID
 	n.cmds[cmd.GetID()] = cmd
 
 	if notice {
@@ -272,9 +280,12 @@ func (n *Node) addCmd(cmd *cronsun.Cmd, notice bool) {
 	return
 }
 
+// modCmd 修改节点中的命令信息
 func (n *Node) modCmd(cmd *cronsun.Cmd, notice bool) {
+	// 检查节点的命令映射中是否已存在该命令ID
 	c, ok := n.cmds[cmd.GetID()]
 	if !ok {
+		// 如果不存在，则调用addCmd函数添加新命令
 		n.addCmd(cmd, notice)
 		return
 	}
@@ -282,9 +293,16 @@ func (n *Node) modCmd(cmd *cronsun.Cmd, notice bool) {
 	sch := c.JobRule.Timer
 	*c = *cmd
 
-	// 节点执行时间改变，更新 cron
-	// 否则不用更新 cron
+	// 只有节点的执行时间改变，才更新 cron
 	if c.JobRule.Timer != sch {
+		// 删除旧的 cron，接着添加一个新的
+		cronEntryID, ok := n.cronEntryIDIndex[cmd.GetID()]
+		if !ok {
+			log.Warnf("cron entry ID for cmd %s does not exist", cmd.GetID())
+			return
+		}
+		n.Cron.Remove(cronEntryID)
+
 		n.Cron.Schedule(c.JobRule.Schedule, c)
 	}
 
@@ -293,10 +311,31 @@ func (n *Node) modCmd(cmd *cronsun.Cmd, notice bool) {
 	}
 }
 
+// delCmd 删除一个命令（cmd）和其相关的定时任务（cron）。
 func (n *Node) delCmd(cmd *cronsun.Cmd) {
-	delete(n.cmds, cmd.GetID())
-	n.Cron.DelJob(cmd)
-	log.Infof("job[%s] group[%s] rule[%s] timer[%s] has deleted", cmd.Job.ID, cmd.Job.Group, cmd.JobRule.ID, cmd.JobRule.Timer)
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	cmdID := cmd.GetID()
+	if _, ok := n.cmds[cmdID]; !ok {
+		log.Warnf("cmd with ID %s does not exist", cmdID)
+		return
+	}
+
+	delete(n.cmds, cmdID)
+
+	cronEntryID, ok := n.cronEntryIDIndex[cmdID]
+	if !ok {
+		log.Warnf("cron entry ID for cmd %s does not exist", cmdID)
+		return
+	}
+
+	n.Cron.Remove(cronEntryID)
+
+	delete(n.cronEntryIDIndex, cmdID)
+
+	log.Infof("job[%s] group[%s] rule[%s] timer[%s] has deleted",
+		cmd.Job.ID, cmd.Job.Group, cmd.JobRule.ID, cmd.JobRule.Timer)
 }
 
 func (n *Node) addGroup(g *cronsun.Group) {

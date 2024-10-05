@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
+	cron2 "github.com/robfig/cron/v3"
 	"github.com/shunfei/cronsun"
-	cron2 "github.com/shunfei/cronsun/node/cron"
 	"github.com/spf13/cobra"
 )
 
@@ -50,6 +50,7 @@ var ImportCmd = &cobra.Command{
 				return
 			}
 		}
+		// TODO: 优化这个
 		rand.Seed(time.Now().Unix())
 		for _, cron := range crons {
 			job := cronsun.Job{}
@@ -106,7 +107,7 @@ func loadCrons() (crons []cron, err error) {
 	cmd.Stderr = &b
 	err = cmd.Run()
 	if err != nil {
-        return
+		return
 	}
 
 	result := strings.Split(b.String(), "\n")
