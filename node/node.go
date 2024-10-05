@@ -510,7 +510,7 @@ func (n *Node) watchJobs() {
 	}
 }
 
-func (n *Node) watchExcutingProc() {
+func (n *Node) watchExecutingProc() {
 	rch := cronsun.WatchProcs(n.ID)
 
 	for wresp := range rch {
@@ -618,7 +618,7 @@ func (n *Node) Run() (err error) {
 
 	n.Cron.Start()
 	go n.watchJobs()
-	go n.watchExcutingProc()
+	go n.watchExecutingProc()
 	go n.watchGroups()
 	go n.watchOnce()
 	go n.watchCsctl()
