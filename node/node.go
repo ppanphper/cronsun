@@ -71,7 +71,7 @@ func NewNode(cfg *conf.Conf) (n *Node, err error) {
 			IP:       ip.String(),
 			Hostname: hostname,
 		},
-		Cron: cron.New(),
+		Cron: cron.New(cron.WithSeconds()),
 
 		jobs: make(Jobs, 8),
 		cmds: make(map[string]*cronsun.Cmd),
