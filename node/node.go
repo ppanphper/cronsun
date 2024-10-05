@@ -446,7 +446,7 @@ func (n *Node) groupRmNode(g, og *cronsun.Group) {
 		return
 	}
 
-	for jid, _ := range jls {
+	for jid := range jls {
 		job, ok := n.jobs[jid]
 		// 之前此任务没有在当前结点执行
 		if !ok {
@@ -482,6 +482,7 @@ func (n *Node) KillExcutingProc(process *cronsun.Process) {
 
 func (n *Node) watchJobs() {
 	rch := cronsun.WatchJobs()
+
 	for wresp := range rch {
 		for _, ev := range wresp.Events {
 			switch {
@@ -604,10 +605,9 @@ func (n *Node) watchCsctl() {
 	}
 }
 
-// 启动服务
+// Run 启动服务
 func (n *Node) Run() (err error) {
 	go n.keepAlive()
-
 	defer func() {
 		if err != nil {
 			n.Stop(nil)
@@ -619,13 +619,19 @@ func (n *Node) Run() (err error) {
 	}
 
 	n.Cron.Start()
+
+	go n.startWatchers()
+
+	n.Node.On()
+	return
+}
+
+func (n *Node) startWatchers() {
 	go n.watchJobs()
 	go n.watchExecutingProc()
 	go n.watchGroups()
 	go n.watchOnce()
 	go n.watchCsctl()
-	n.Node.On()
-	return
 }
 
 // 停止服务
