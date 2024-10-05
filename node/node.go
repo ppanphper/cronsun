@@ -296,14 +296,8 @@ func (n *Node) modCmd(cmd *cronsun.Cmd, notice bool) {
 	// 只有节点的执行时间改变，才更新 cron
 	if c.JobRule.Timer != sch {
 		// 删除旧的 cron，接着添加一个新的
-		cronEntryID, ok := n.cronEntryIDIndex[cmd.GetID()]
-		if !ok {
-			log.Warnf("cron entry ID for cmd %s does not exist", cmd.GetID())
-			return
-		}
-		n.Cron.Remove(cronEntryID)
-
-		n.Cron.Schedule(c.JobRule.Schedule, c)
+		n.delCmd(cmd)
+		n.addCmd(cmd, notice)
 	}
 
 	if notice {

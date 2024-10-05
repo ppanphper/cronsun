@@ -291,7 +291,7 @@ func (rule *JobRule) included(nid string, gs map[string]*Group) bool {
 	return false
 }
 
-// 验证 timer 字段
+// Valid 验证 timer 字段
 func (rule *JobRule) Valid() error {
 	// 注意 interface nil 的比较
 	if rule.Schedule != nil {
@@ -672,7 +672,7 @@ LoopTimer:
 	return false
 }
 
-// 安全选项验证
+// Valid 安全选项验证
 func (j *Job) Valid() error {
 	if len(j.cmd) == 0 {
 		j.splitCmd()
