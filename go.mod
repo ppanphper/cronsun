@@ -50,7 +50,7 @@ require (
 	github.com/smartystreets/assertions v0.0.0-20180820201707-7c9eb446e3cf // indirect
 	github.com/soheilhy/cmux v0.1.4 // indirect
 	github.com/spf13/pflag v1.0.2 // indirect
-	github.com/stretchr/testify v1.2.2 // indirect
+	github.com/stretchr/testify v1.9.0 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20171017195756-830351dc03c6 // indirect
 	github.com/ugorji/go/codec v0.0.0-20180831062425-e253f1f20942 // indirect
 	github.com/xiang90/probing v0.0.0-20160813154853-07dd2e8dfe18 // indirect
@@ -67,4 +67,5 @@ require (
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/gomail.v2 v2.0.0-20160411212932-81ebce5c23df // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
