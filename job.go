@@ -38,7 +38,7 @@ const (
 type Job struct {
 	ID      string     `json:"id"`
 	Name    string     `json:"name"`
-	Group   string     `json:"group"`
+	Group   string     `json:"group"` // 分组名称，比如 default、系统维护
 	Command string     `json:"cmd"`
 	User    string     `json:"user"`
 	Rules   []*JobRule `json:"rules"`
@@ -317,22 +317,28 @@ func GetJob(group, id string) (job *Job, err error) {
 	return
 }
 
-func GetJobAndRev(group, id string) (job *Job, rev int64, err error) {
-	resp, err := DefalutClient.Get(JobKey(group, id))
+// GetJobAndRev 通过 groupName 和 jobID 获取 Job 对象及其版本
+func GetJobAndRev(groupName, jobID string) (job *Job, rev int64, err error) {
+	resp, err := DefalutClient.Get(JobKey(groupName, jobID))
 	if err != nil {
 		return
 	}
 
+	// 如果没有找到对应的Job对象，则返回ErrNotFound错误。
 	if resp.Count == 0 {
 		err = ErrNotFound
 		return
 	}
 
+	// 解析并获取Job对象的版本号。
 	rev = resp.Kvs[0].ModRevision
+
+	// 将获取到的Job对象数据反序列化到job变量中。
 	if err = json.Unmarshal(resp.Kvs[0].Value, &job); err != nil {
 		return
 	}
 
+	// 分割并处理Job对象的命令字段。
 	job.splitCmd()
 	return
 }

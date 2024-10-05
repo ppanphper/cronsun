@@ -12,7 +12,7 @@ const (
 	stateArgumentEnd
 )
 
-var errEndOfLine = errors.New("End of line")
+var errEndOfLine = errors.New("end of line")
 
 type cmdArgumentParser struct {
 	s            string
