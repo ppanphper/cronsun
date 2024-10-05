@@ -3,7 +3,6 @@ package conf
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 	"strings"
@@ -155,7 +154,7 @@ func (c *Conf) UUID() (string, error) {
 	}
 	c.UUIDFile = path.Clean(c.UUIDFile)
 
-	b, err := ioutil.ReadFile(c.UUIDFile)
+	b, err := os.ReadFile(c.UUIDFile)
 	if err == nil {
 		if len(b) == 0 {
 			return c.genUUID()
