@@ -7,7 +7,6 @@ import (
 	"path"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -40,8 +39,6 @@ type Node struct {
 	ttl  int64
 	lID  client.LeaseID // lease id
 	done chan struct{}
-
-	mu sync.Mutex // 添加互斥
 }
 
 func NewNode(cfg *conf.Conf) (n *Node, err error) {
@@ -269,9 +266,19 @@ func (n *Node) modJob(job *cronsun.Job) {
 }
 
 func (n *Node) addCmd(cmd *cronsun.Cmd, notice bool) {
+	cmdID := cmd.GetID()
+
+	// 检查命令是否已存在，防止重复添加
+	if _, exists := n.cmds[cmdID]; exists {
+		log.Warnf("命令 ID %s 已存在，跳过添加", cmdID)
+		return
+	}
+
 	cronEntryID := n.Cron.Schedule(cmd.JobRule.Schedule, cmd)
-	n.cronEntryIDIndex[cmd.GetID()] = cronEntryID
-	n.cmds[cmd.GetID()] = cmd
+
+	// 添加到内部映射中
+	n.cronEntryIDIndex[cmdID] = cronEntryID
+	n.cmds[cmdID] = cmd
 
 	if notice {
 		log.Infof("job[%s] group[%s] rule[%s] timer[%s] has added", cmd.Job.ID, cmd.Job.Group, cmd.JobRule.ID, cmd.JobRule.Timer)
@@ -281,6 +288,8 @@ func (n *Node) addCmd(cmd *cronsun.Cmd, notice bool) {
 
 // modCmd 修改节点中的命令信息
 func (n *Node) modCmd(cmd *cronsun.Cmd, notice bool) {
+	cmdID := cmd.GetID()
+
 	// 检查节点的命令映射中是否已存在该命令ID
 	c, ok := n.cmds[cmd.GetID()]
 	if !ok {
@@ -289,14 +298,17 @@ func (n *Node) modCmd(cmd *cronsun.Cmd, notice bool) {
 		return
 	}
 
-	sch := c.JobRule.Timer
+	oldSchedule := c.JobRule.Timer
 	*c = *cmd
 
 	// 只有节点的执行时间改变，才更新 cron
-	if c.JobRule.Timer != sch {
-		// 删除旧的 cron，接着添加一个新的
-		n.delCmd(cmd)
-		n.addCmd(cmd, notice)
+	if c.JobRule.Timer != oldSchedule {
+		cronEntryID := n.cronEntryIDIndex[cmdID]
+
+		// 更新 cron 调度规则
+		n.Cron.Remove(cronEntryID)
+		newCronEntryID := n.Cron.Schedule(c.JobRule.Schedule, c)
+		n.cronEntryIDIndex[cmdID] = newCronEntryID
 	}
 
 	if notice {
@@ -306,9 +318,6 @@ func (n *Node) modCmd(cmd *cronsun.Cmd, notice bool) {
 
 // delCmd 删除一个命令（cmd）和其相关的定时任务（cron）。
 func (n *Node) delCmd(cmd *cronsun.Cmd) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
 	cmdID := cmd.GetID()
 	if _, ok := n.cmds[cmdID]; !ok {
 		log.Warnf("cmd with ID %s does not exist", cmdID)
