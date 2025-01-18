@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
+	cron2 "github.com/robfig/cron/v3"
 	"github.com/shunfei/cronsun"
-	cron2 "github.com/shunfei/cronsun/node/cron"
 	"github.com/spf13/cobra"
 )
 
@@ -50,7 +50,8 @@ var ImportCmd = &cobra.Command{
 				return
 			}
 		}
-		rand.Seed(time.Now().Unix())
+		randGen := rand.New(rand.NewSource(time.Now().UnixNano()))
+
 		for _, cron := range crons {
 			job := cronsun.Job{}
 			job.ID = cronsun.NextID()
@@ -59,7 +60,7 @@ var ImportCmd = &cobra.Command{
 				Timer: "* " + cron.timer,
 			}
 			jr.NodeIDs = nodeInclude
-			job.Name = fmt.Sprintf("crontab-%d", rand.Intn(1000))
+			job.Name = fmt.Sprintf("crontab-%d", randGen.Intn(10000))
 			job.Group = "crontab"
 			job.Rules = append(job.Rules, jr)
 			// 默认先暂停
@@ -106,7 +107,7 @@ func loadCrons() (crons []cron, err error) {
 	cmd.Stderr = &b
 	err = cmd.Run()
 	if err != nil {
-        return
+		return
 	}
 
 	result := strings.Split(b.String(), "\n")

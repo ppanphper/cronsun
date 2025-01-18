@@ -10,7 +10,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -39,7 +38,7 @@ func SetPathTag(tag string) {
 	pwdTag = tag
 }
 
-//加载json（可配置扩展字段）配置文件
+// 加载json（可配置扩展字段）配置文件
 func LoadExtendConf(filePath string, v interface{}) error {
 	data, err := extendFile(filePath)
 	if err != nil {
@@ -58,7 +57,7 @@ func extendFile(filePath string) (data []byte, err error) {
 		return
 	}
 
-	b, err := ioutil.ReadFile(filePath)
+	b, err := os.ReadFile(filePath)
 	if err != nil {
 		return
 	}

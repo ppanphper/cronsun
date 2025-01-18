@@ -17,9 +17,9 @@ import (
 
 	client "github.com/coreos/etcd/clientv3"
 
+	"github.com/robfig/cron/v3"
 	"github.com/shunfei/cronsun/conf"
 	"github.com/shunfei/cronsun/log"
-	"github.com/shunfei/cronsun/node/cron"
 	"github.com/shunfei/cronsun/utils"
 )
 
@@ -33,12 +33,12 @@ const (
 	KindInterval // 一个任务执行间隔内允许执行一次
 )
 
-// 需要执行的 cron cmd 命令
+// Job 需要执行的 cron cmd 命令
 // 注册到 /cronsun/cmd/groupName/<id>
 type Job struct {
 	ID      string     `json:"id"`
 	Name    string     `json:"name"`
-	Group   string     `json:"group"`
+	Group   string     `json:"group"` // 分组名称，比如 default、系统维护
 	Command string     `json:"cmd"`
 	User    string     `json:"user"`
 	Rules   []*JobRule `json:"rules"`
@@ -77,6 +77,7 @@ type Job struct {
 	Count *int64 `json:"-"`
 }
 
+// JobRule 定时器规则
 type JobRule struct {
 	ID             string   `json:"id"`
 	Timer          string   `json:"timer"`
@@ -131,6 +132,7 @@ type Cmd struct {
 	*JobRule
 }
 
+// GetID 方法用于获取当前命令的唯一标识符
 func (c *Cmd) GetID() string {
 	return c.Job.ID + c.JobRule.ID
 }
@@ -289,7 +291,7 @@ func (rule *JobRule) included(nid string, gs map[string]*Group) bool {
 	return false
 }
 
-// 验证 timer 字段
+// Valid 验证 timer 字段
 func (rule *JobRule) Valid() error {
 	// 注意 interface nil 的比较
 	if rule.Schedule != nil {
@@ -300,7 +302,7 @@ func (rule *JobRule) Valid() error {
 		return ErrNilRule
 	}
 
-	sch, err := cron.Parse(rule.Timer)
+	sch, err := cron.Parser{}.Parse(rule.Timer)
 	if err != nil {
 		return fmt.Errorf("invalid JobRule[%s], parse err: %s", rule.Timer, err.Error())
 	}
@@ -309,28 +311,34 @@ func (rule *JobRule) Valid() error {
 	return nil
 }
 
-// Note: this function did't check the job.
+// TODO: GetJob 没有检查 Job
 func GetJob(group, id string) (job *Job, err error) {
 	job, _, err = GetJobAndRev(group, id)
 	return
 }
 
-func GetJobAndRev(group, id string) (job *Job, rev int64, err error) {
-	resp, err := DefalutClient.Get(JobKey(group, id))
+// GetJobAndRev 通过 groupName 和 jobID 获取 Job 对象及其版本
+func GetJobAndRev(groupName, jobID string) (job *Job, rev int64, err error) {
+	resp, err := DefalutClient.Get(JobKey(groupName, jobID))
 	if err != nil {
 		return
 	}
 
+	// 如果没有找到对应的Job对象，则返回ErrNotFound错误。
 	if resp.Count == 0 {
 		err = ErrNotFound
 		return
 	}
 
+	// 解析并获取Job对象的版本号。
 	rev = resp.Kvs[0].ModRevision
+
+	// 将获取到的Job对象数据反序列化到job变量中。
 	if err = json.Unmarshal(resp.Kvs[0].Value, &job); err != nil {
 		return
 	}
 
+	// 分割并处理Job对象的命令字段。
 	job.splitCmd()
 	return
 }
@@ -419,7 +427,7 @@ func (j *Job) GetNextRunTime() time.Time {
 		return nextTime
 	}
 	for i, r := range j.Rules {
-		sch, err := cron.Parse(r.Timer)
+		sch, err := cron.Parser{}.Parse(r.Timer)
 		if err != nil {
 			return nextTime
 		}
@@ -517,8 +525,11 @@ func (j *Job) Key() string {
 	return JobKey(j.Group, j.ID)
 }
 
+// Check 检查Job对象的各个字段是否合法并进行必要的修正。
 func (j *Job) Check() error {
 	j.ID = strings.TrimSpace(j.ID)
+
+	// 检查Job ID是否合法
 	if !IsValidAsKeyPath(j.ID) {
 		return ErrIllegalJobId
 	}
@@ -529,14 +540,17 @@ func (j *Job) Check() error {
 	}
 
 	j.Group = strings.TrimSpace(j.Group)
+	// 如果Job组名为空，则设置为默认组名
 	if len(j.Group) == 0 {
 		j.Group = DefaultJobGroup
 	}
 
+	// 检查Job组名是否合法
 	if !IsValidAsKeyPath(j.Group) {
 		return ErrIllegalJobGroupName
 	}
 
+	// 如果日志过期时间小于0，则设置为0，表示不删除日志
 	if j.LogExpiration < 0 {
 		j.LogExpiration = 0
 	}
@@ -550,11 +564,11 @@ func (j *Job) Check() error {
 		}
 	}
 
-	// 不修改 Command 的内容，简单判断是否为空
 	if len(strings.TrimSpace(j.Command)) == 0 {
 		return ErrEmptyJobCommand
 	}
 
+	// 调用 j.Valid 方法进行进一步的验证
 	return j.Valid()
 }
 
@@ -610,26 +624,26 @@ func (j *Job) Avg(t, et time.Time) {
 	j.AvgTime = (j.AvgTime + execTime) / 2
 }
 
-func (j *Job) Cmds(nid string, gs map[string]*Group) (cmds map[string]*Cmd) {
+func (j *Job) Cmds(nodeID string, gs map[string]*Group) (cmds map[string]*Cmd) {
 	cmds = make(map[string]*Cmd)
 	if j.Pause {
 		return
 	}
 
-LOOP_TIMER_CMD:
+LoopTimerCmd:
 	for _, r := range j.Rules {
 		for _, id := range r.ExcludeNodeIDs {
-			if nid == id {
+			if nodeID == id {
 				// 在当前定时器规则中，任务不会在该节点执行（节点被排除）
 				// 但是任务可以在其它定时器中，在该节点被执行
 				// 比如，一个定时器设置在凌晨 1 点执行，但是此时不想在这个节点执行，然后，
 				// 同时又设置一个定时器在凌晨 2 点执行，这次这个任务由于某些原因，必须在当前节点执行
 				// 下面的 LOOP_TIMER 标签，原因同上
-				continue LOOP_TIMER_CMD
+				continue LoopTimerCmd
 			}
 		}
 
-		if r.included(nid, gs) {
+		if r.included(nodeID, gs) {
 			cmd := &Cmd{
 				Job:     j,
 				JobRule: r,
@@ -642,11 +656,11 @@ LOOP_TIMER_CMD:
 }
 
 func (j Job) IsRunOn(nid string, gs map[string]*Group) bool {
-LOOP_TIMER:
+LoopTimer:
 	for _, r := range j.Rules {
 		for _, id := range r.ExcludeNodeIDs {
 			if nid == id {
-				continue LOOP_TIMER
+				continue LoopTimer
 			}
 		}
 
@@ -658,7 +672,7 @@ LOOP_TIMER:
 	return false
 }
 
-// 安全选项验证
+// Valid 安全选项验证
 func (j *Job) Valid() error {
 	if len(j.cmd) == 0 {
 		j.splitCmd()

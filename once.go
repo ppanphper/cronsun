@@ -6,7 +6,7 @@ import (
 	"github.com/shunfei/cronsun/conf"
 )
 
-// 马上执行 job 任务
+// PutOnce 马上执行 job 任务
 // 注册到 /cronsun/once/group/<jobID>
 // value
 // 若执行单个结点，则值为 NodeID

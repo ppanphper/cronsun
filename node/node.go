@@ -3,7 +3,6 @@ package node
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 	"strconv"
@@ -12,10 +11,10 @@ import (
 	"time"
 
 	client "github.com/coreos/etcd/clientv3"
+	"github.com/robfig/cron/v3"
 	"github.com/shunfei/cronsun"
 	"github.com/shunfei/cronsun/conf"
 	"github.com/shunfei/cronsun/log"
-	"github.com/shunfei/cronsun/node/cron"
 	"github.com/shunfei/cronsun/utils"
 )
 
@@ -24,6 +23,10 @@ type Node struct {
 	*cronsun.Client
 	*cronsun.Node
 	*cron.Cron
+
+	// key 为 cmd 的 ID（cmd.GetID），值为 cron 的 entry ID
+	// 可通过获取 entry ID，来删除这个 cron 任务
+	cronEntryIDIndex map[string]cron.EntryID
 
 	jobs   Jobs // 和结点相关的任务
 	groups Groups
@@ -64,7 +67,7 @@ func NewNode(cfg *conf.Conf) (n *Node, err error) {
 			IP:       ip.String(),
 			Hostname: hostname,
 		},
-		Cron: cron.New(),
+		Cron: cron.New(cron.WithSeconds()),
 
 		jobs: make(Jobs, 8),
 		cmds: make(map[string]*cronsun.Cmd),
@@ -126,7 +129,7 @@ func (n *Node) writePIDFile() {
 	}
 
 	n.PIDFile = path.Join(dir, filename)
-	err = ioutil.WriteFile(n.PIDFile, []byte(n.PID), 0644)
+	err = os.WriteFile(n.PIDFile, []byte(n.PID), 0644)
 	if err != nil {
 		log.Errorf("Failed to write pid file: %s. you can change PIDFile config in base.json", err)
 		return
@@ -263,8 +266,19 @@ func (n *Node) modJob(job *cronsun.Job) {
 }
 
 func (n *Node) addCmd(cmd *cronsun.Cmd, notice bool) {
-	n.Cron.Schedule(cmd.JobRule.Schedule, cmd)
-	n.cmds[cmd.GetID()] = cmd
+	cmdID := cmd.GetID()
+
+	// 检查命令是否已存在，防止重复添加
+	if _, exists := n.cmds[cmdID]; exists {
+		log.Warnf("命令 ID %s 已存在，跳过添加", cmdID)
+		return
+	}
+
+	cronEntryID := n.Cron.Schedule(cmd.JobRule.Schedule, cmd)
+
+	// 添加到内部映射中
+	n.cronEntryIDIndex[cmdID] = cronEntryID
+	n.cmds[cmdID] = cmd
 
 	if notice {
 		log.Infof("job[%s] group[%s] rule[%s] timer[%s] has added", cmd.Job.ID, cmd.Job.Group, cmd.JobRule.ID, cmd.JobRule.Timer)
@@ -272,20 +286,29 @@ func (n *Node) addCmd(cmd *cronsun.Cmd, notice bool) {
 	return
 }
 
+// modCmd 修改节点中的命令信息
 func (n *Node) modCmd(cmd *cronsun.Cmd, notice bool) {
+	cmdID := cmd.GetID()
+
+	// 检查节点的命令映射中是否已存在该命令ID
 	c, ok := n.cmds[cmd.GetID()]
 	if !ok {
+		// 如果不存在，则调用addCmd函数添加新命令
 		n.addCmd(cmd, notice)
 		return
 	}
 
-	sch := c.JobRule.Timer
+	oldSchedule := c.JobRule.Timer
 	*c = *cmd
 
-	// 节点执行时间改变，更新 cron
-	// 否则不用更新 cron
-	if c.JobRule.Timer != sch {
-		n.Cron.Schedule(c.JobRule.Schedule, c)
+	// 只有节点的执行时间改变，才更新 cron
+	if c.JobRule.Timer != oldSchedule {
+		cronEntryID := n.cronEntryIDIndex[cmdID]
+
+		// 更新 cron 调度规则
+		n.Cron.Remove(cronEntryID)
+		newCronEntryID := n.Cron.Schedule(c.JobRule.Schedule, c)
+		n.cronEntryIDIndex[cmdID] = newCronEntryID
 	}
 
 	if notice {
@@ -293,10 +316,28 @@ func (n *Node) modCmd(cmd *cronsun.Cmd, notice bool) {
 	}
 }
 
+// delCmd 删除一个命令（cmd）和其相关的定时任务（cron）。
 func (n *Node) delCmd(cmd *cronsun.Cmd) {
-	delete(n.cmds, cmd.GetID())
-	n.Cron.DelJob(cmd)
-	log.Infof("job[%s] group[%s] rule[%s] timer[%s] has deleted", cmd.Job.ID, cmd.Job.Group, cmd.JobRule.ID, cmd.JobRule.Timer)
+	cmdID := cmd.GetID()
+	if _, ok := n.cmds[cmdID]; !ok {
+		log.Warnf("cmd with ID %s does not exist", cmdID)
+		return
+	}
+
+	delete(n.cmds, cmdID)
+
+	cronEntryID, ok := n.cronEntryIDIndex[cmdID]
+	if !ok {
+		log.Warnf("cron entry ID for cmd %s does not exist", cmdID)
+		return
+	}
+
+	n.Cron.Remove(cronEntryID)
+
+	delete(n.cronEntryIDIndex, cmdID)
+
+	log.Infof("job[%s] group[%s] rule[%s] timer[%s] has deleted",
+		cmd.Job.ID, cmd.Job.Group, cmd.JobRule.ID, cmd.JobRule.Timer)
 }
 
 func (n *Node) addGroup(g *cronsun.Group) {
@@ -405,7 +446,7 @@ func (n *Node) groupRmNode(g, og *cronsun.Group) {
 		return
 	}
 
-	for jid, _ := range jls {
+	for jid := range jls {
 		job, ok := n.jobs[jid]
 		// 之前此任务没有在当前结点执行
 		if !ok {
@@ -441,6 +482,7 @@ func (n *Node) KillExcutingProc(process *cronsun.Process) {
 
 func (n *Node) watchJobs() {
 	rch := cronsun.WatchJobs()
+
 	for wresp := range rch {
 		for _, ev := range wresp.Events {
 			switch {
@@ -471,7 +513,7 @@ func (n *Node) watchJobs() {
 	}
 }
 
-func (n *Node) watchExcutingProc() {
+func (n *Node) watchExecutingProc() {
 	rch := cronsun.WatchProcs(n.ID)
 
 	for wresp := range rch {
@@ -563,10 +605,9 @@ func (n *Node) watchCsctl() {
 	}
 }
 
-// 启动服务
+// Run 启动服务
 func (n *Node) Run() (err error) {
 	go n.keepAlive()
-
 	defer func() {
 		if err != nil {
 			n.Stop(nil)
@@ -578,13 +619,19 @@ func (n *Node) Run() (err error) {
 	}
 
 	n.Cron.Start()
+
+	go n.startWatchers()
+
+	n.Node.On()
+	return
+}
+
+func (n *Node) startWatchers() {
 	go n.watchJobs()
-	go n.watchExcutingProc()
+	go n.watchExecutingProc()
 	go n.watchGroups()
 	go n.watchOnce()
 	go n.watchCsctl()
-	n.Node.On()
-	return
 }
 
 // 停止服务

@@ -154,16 +154,22 @@ export default {
       if (this.begin) params.push('begin='+this.begin);
       if (this.end) params.push('end='+this.end);
       if (this.failedOnly) params.push('failedOnly=true');
-      if (this.page == 0) this.page = 1;
+      if (this.page === 0) this.page = 1;
       params.push('page='+this.page);
       if (this.latest) params.push('latest=true');
       return params.join('&');
     },
 
     submit: function(){
-      var query = this.buildQuery()
-      var url = '/log?'+query;
-      if (this.$route.fullPath == url) {
+      let query = this.buildQuery();
+      let url = '/log?'+query;
+
+      // 注意：query 没有 URI 编码过，所以这里需要 encodeURI
+      // 参考值
+      // url: "/log?names=测试&begin=2024-10-04&end=2024-10-04&page=1"
+      // this.$route.fullPath:  "/log?names=%E6%B5%8B%E8%AF%95&begin=2024-10-04&end=2024-10-04&page=1"
+
+      if (this.$route.fullPath === '/log?' + encodeURI(query)) {
         this.fetchList(query);
         return;
       }
